@@ -12,8 +12,8 @@
 	 * @property {string} zone_name
 	 * @property {string} country_code
 	 * @property {string} abbreviation
-	 * @property {EpochTimeStamp} time_start 
-	 * @property {number} gmt_offset in seconds
+	 * @property {EpochTimeStamp} time_start
+	 * @property {number} gmt_offset in milliseconds
 	 * @property {boolean} dst Whether daylight savings is in effect
 	 */
 
@@ -37,8 +37,8 @@
 				zone_name,
 				country_code,
 				abbreviation,
-				time_start: +time_start,
-				gmt_offset: +gmt_offset,
+				time_start: +time_start * 1000,
+				gmt_offset: +gmt_offset * 1000,
 				dst: dst === "1"
 			});
 		}

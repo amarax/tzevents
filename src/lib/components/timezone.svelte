@@ -95,7 +95,11 @@
      function getTimezoneOffset(time, timezone) {
         let _time = time instanceof Date ? time.getTime() : time;
 
-        return $timezones[timezone]?.find(tz => tz.time_start <= _time)?.gmt_offset ?? 0;
+        let offsetInSeconds = $timezones[timezone]?.find(tz => tz.time_start <= _time)?.gmt_offset;
+
+        let tz = $timezones[timezone]?.find(tz => tz.time_start <= _time);
+
+        return offsetInSeconds ?? 0;
     }
 
 
@@ -111,7 +115,7 @@
 
     // Update now every second
     setInterval(() => {
-        now = Date.now();
+        // now = Date.now();
     }, 1000);
 
     $: formatTime = Intl.DateTimeFormat(undefined, {
@@ -126,6 +130,20 @@
         day: 'numeric',
         timeZone: value
     }).format;
+
+
+    /**
+     * Array of days where it's midnight in the selected timezone
+     * Calculated from x.domain()
+     * @type {number[]}
+     */
+    let dayTicks = [];
+    $: {
+        let start = x.domain()[0].getTime() + timezoneOffset;
+        let end = x.domain()[1].getTime() + timezoneOffset;
+        let day = 1000 * 60 * 60 * 24;
+        dayTicks = Array.from({ length: Math.ceil((end - start) / day) + 1 }, (_, i) => start - (start % day) + i * day - timezoneOffset);
+    }
 </script>
 
 <div class="timezone">
@@ -141,6 +159,9 @@
         <g class="ticks">
             {#each hourTicks as tick}
                 <line x1={x(tick)} x2={x(tick)} y1={y(0)} y2={y(1)} />
+            {/each}
+            {#each dayTicks as tick}
+                <text x={x(tick)} y={y(1)} dy="1em" text-anchor="start">{formatDate(tick)}</text>
             {/each}
         </g>
         <g class="now">
@@ -184,7 +205,13 @@
     }
 
     g.ticks {
-        stroke: #999;
+        line {
+            stroke: #ccc;
+        }
+        
+        text {
+            fill: #ccc;
+        }
     }
 
     g.now {
