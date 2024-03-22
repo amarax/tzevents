@@ -1,7 +1,7 @@
 <script>
 	import { base } from "$app/paths";
 	import Timezone from "$lib/components/timezone.svelte";
-	import { csvParseRows } from "d3";
+	import { csvParse, csvParseRows } from "d3";
 	import { onMount } from "svelte";
 	import { derived, readable } from "svelte/store";
 
@@ -76,6 +76,20 @@
 	let countries = readable({});
 
 
+	async function loadCities() {
+		const response = await fetch(`${base}/worldcities.csv`);
+		const text = await response.text();
+		const cityEntries = csvParse(text);
+
+		cities = readable(cityEntries);
+
+		return cityEntries;
+	
+	}
+
+	let cities = readable([]);
+
+
 	/**
 	 * A readable store containing the list of timezones.
 	 * @type {import("svelte/store").Readable<Record<string, Timezone[]>>}
@@ -85,6 +99,7 @@
 	onMount(()=>{
 		loadTimezones();
 		loadCountries();
+		loadCities();
 	});
 
 	
@@ -121,7 +136,7 @@ A simple way to coordinate cross-timezone events.
 
 <p>
 	{#each selectedTimezones as timezone}
-		<Timezone {timezoneNames} {timezones} bind:value={timezone} />
+		<Timezone {timezoneNames} {timezones} {cities} bind:value={timezone} />
 	{/each}
 	<button on:click={() => selectedTimezones = [...selectedTimezones, defaultTimezone]}>Add Timezone</button>
 </p>

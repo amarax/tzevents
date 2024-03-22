@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import { readable } from "svelte/store";
 
+    import SunCalc from 'suncalc';
 
 	/**
 	 * zone_name,country_code,abbreviation,time_start,gmt_offset,dst
@@ -71,6 +72,7 @@
         }
         x = x;
         y = y;
+        sunY = sunY;
     }
 
     onMount(() => {
@@ -144,6 +146,86 @@
         let day = 1000 * 60 * 60 * 24;
         dayTicks = Array.from({ length: Math.ceil((end - start) / day) + 1 }, (_, i) => start - (start % day) + i * day - timezoneOffset);
     }
+
+
+
+    export let cities = readable([]);
+
+    /** @type {[number, number] | undefined} */
+    let location;
+
+    // Get the lat-long for the selected timezone
+    $: {
+        // First try to match the country name to the dropdown value
+        let city = $cities.find(city => city.capital == 'primary' &&  city.country.toLowerCase() == dropdownValue?.toLowerCase());
+
+        if(!city) {
+            // If that doesn't work, the dropdown value could be a timezone name, let's find a city from there
+            let possibleCityName = dropdownValue?.split("/")[1];
+            // Replace underscores with spaces
+            possibleCityName = possibleCityName?.replace(/_/g, " ");
+
+            city = $cities.find(city => city.city_ascii.toLowerCase() == possibleCityName?.toLowerCase());
+        }
+
+        if(city) {
+            location = [city.lat, city.lng];
+        } else {
+            location = undefined;
+        }
+    }
+
+    /**
+     * Array of sun elevation angles based on hourTicks
+     * @type {[number,number|null][]}
+     */
+    let sunElevation = [];
+    
+    $: {
+        sunElevation = [];
+        if(location) {
+            // Get the sunrise and sunset times between the first and last hour ticks
+            for(let day of dayTicks) {
+                let sunTimes = SunCalc.getTimes(new Date(day), location[0], location[1]);
+                // @ts-ignore sunrise exists
+                let sunrise = sunTimes.sunrise.getTime();
+                // @ts-ignore sunset exists
+                let sunset = sunTimes.sunset.getTime();
+                let noon = sunTimes.solarNoon.getTime();
+
+                sunElevation.push([sunrise-1, null]);
+                // Get the sun elevation for each half hour block
+                const blockInMins = 15;
+                for(let t = sunrise; t < sunset; t += 1000 * 60 * blockInMins) {
+                    let sunPos = SunCalc.getPosition(new Date(t), location[0], location[1]);
+                    sunElevation.push([t, sunPos.altitude]);
+
+                    if(t <= noon && noon <= t + 1000 * 60 * blockInMins) {
+                        let sunPos = SunCalc.getPosition(new Date(noon), location[0], location[1]);
+                        sunElevation.push([noon, sunPos.altitude]);
+                    }
+                }
+                let t= sunset;
+                let sunPos = SunCalc.getPosition(new Date(t), location[0], location[1]);
+                sunElevation.push([t, sunPos.altitude]);
+
+                sunElevation.push([sunset+1, null]);
+            }
+        }
+    }
+
+    let sunY = d3.scaleLinear()
+
+    $: sunY.domain([d3.min(sunElevation, d => d[1]), Math.PI/2]);
+
+    $: sunY.range([y(1), y(0)]);
+
+    $: sunLine = d3.line()
+        .x((d, i) => x(d[0]))
+        .y(d => sunY(d[1]))
+        .defined(d => d[1] !== null);
+
+    
 </script>
 
 <div class="timezone">
@@ -156,6 +238,9 @@
         </select>
     </div>
     <svg bind:this={svg} height="3em">
+        <g class="sun">
+            <path d={sunLine(sunElevation)} />
+        </g>
         <g class="ticks">
             {#each hourTicks as tick}
                 <line x1={x(tick)} x2={x(tick)} y1={y(0)} y2={y(1)} />
@@ -201,6 +286,17 @@
         text {
             font-size: 10px;
             font-family: sans-serif;
+        }
+    }
+
+    g.sun {
+        --color-sun: rgb(255, 196, 0);
+
+        path {
+            stroke: var(--color-sun);
+            stroke-width: 2px;
+
+            fill: none;
         }
     }
 
