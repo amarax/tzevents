@@ -43,6 +43,11 @@
 			});
 		}
 
+		// Sort timezones by time_start from latest to earliest
+		for (let zone in _timezones) {
+			_timezones[zone].sort((a, b) => b.time_start - a.time_start);
+		}
+
 		timezones = readable(_timezones);
 
 		return _timezones;

@@ -40,12 +40,15 @@
         }
     }
 
+    let userTimezoneOffset = new Date().getTimezoneOffset() * 60;
     /** 
      * An array of ticks for each hour across 3 days, centred on the current time
      * @type {number[]}
      */
     export let hourTicks = Array.from({ length: 72 }, (_, i) => {
-        let now = Date.now();
+        let now = Date.now() - userTimezoneOffset;
+        // Round this off to the nearest hour
+        now = now - now % (1000 * 60 * 60);
         let hour = 1000 * 60 * 60;
         let offset = (i - 36) * hour;
         return now + offset;
@@ -79,9 +82,50 @@
         }
     });
 
-    $: timezoneOffset = $timezones[dropdownValue].find(tz => tz.time_start <= Date.now())?.gmt_offset ?? 0;
 
-    $: dateInSelectedTimezone = 0;
+    $: now = Date.now();
+    $: timezoneOffset = getTimezoneOffset(now, dropdownValue);
+
+
+
+    /**
+     * @param {Date|number} time
+     * @param {string} timezone
+     */
+     function getTimezoneOffset(time, timezone) {
+        let _time = time instanceof Date ? time.getTime() : time;
+
+        return $timezones[timezone]?.find(tz => tz.time_start <= _time)?.gmt_offset ?? 0;
+    }
+
+
+    /**
+     * @param {Date|number} time
+     * @param {number} timezoneOffset
+     * @returns {number}
+     */
+    function addTimezoneOffset(time, timezoneOffset) {
+        let _time = time instanceof Date ? time.getTime() : time;
+        return _time;
+    }
+
+    // Update now every second
+    setInterval(() => {
+        now = Date.now();
+    }, 1000);
+
+    $: formatTime = Intl.DateTimeFormat(undefined, {
+        hour: 'numeric',
+        minute: 'numeric',
+        timeZone: value
+    }).format;
+
+    $: formatDate = Intl.DateTimeFormat(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        timeZone: value
+    }).format;
 </script>
 
 <div class="timezone">
@@ -100,8 +144,9 @@
             {/each}
         </g>
         <g class="now">
-            <line x1={x(Date.now())} x2={x(Date.now())} y1={y(0)} y2={y(1)} />
-            <text x={x(Date.now())} y={y(0)} dy={-2} text-anchor="left"></text>
+            <line x1={x(now)} x2={x(now)} y1={y(0)} y2={y(1)} />
+            <text x={x(now)} y={y(0)} dy={-2} text-anchor="start">{formatTime(now)}</text>
+            <text x={x(now)} y={y(0)} dx="-0.3em" dy={-2} text-anchor="end">{formatDate(now)}</text>
         </g>
     </svg>
 </div>
@@ -114,7 +159,7 @@
     div.timezone {
         display: flex;
         flex-direction: row nowrap;
-        align-items: stretch;
+        align-items: center;
 
         margin-bottom: 0.3em;
 
@@ -122,11 +167,6 @@
         
         & > div {
             flex-basis: 0 0;
-
-            display: flex;
-            flex-direction: row nowrap;
-            align-items: stretch;
-            gap: 0.2em;
         }
 
         & > svg {
@@ -135,6 +175,8 @@
     }
 
     svg {
+        user-select: none;
+
         text {
             font-size: 10px;
             font-family: sans-serif;
