@@ -76,20 +76,25 @@
         sunY = sunY;
     }
 
-    let animate = false;
+    export let animate = writable(true);
+
+    let _initalised = false;
+    let _animate = false;
     onMount(() => {
         window.addEventListener("resize", onresize);
         onresize();
 
         // Only start animation after the first render
         setTimeout(() => {
-            animate = true;
+            _initalised = true;
         }, 0);
 
         return () => {
             window.removeEventListener("resize", onresize);
         }
     });
+
+    $: if(_initalised) _animate = $animate;
 
 
     let now = Date.now();
@@ -290,10 +295,9 @@
     /**
      * Svelte Transition function to delay the disappearance of the hour marks when the time range changes
      * @param {SVGElement} node
-     * @param {{duration:number}} param
      * 
     */
-    function delay(node, {duration}) {
+    function delay(node) {
         return {
             duration,
             
@@ -357,6 +361,10 @@
         selectionStart = undefined;
     }
 
+
+    /** @type {number|undefined} */
+    let scrollTimeout;
+
     /**
      * @type {import('svelte/elements').UIEventHandler<SVGRectElement>}
      */
@@ -372,29 +380,35 @@
             time = time.getTime();
         }
 
+        // @ts-ignore
         let delta = event.deltaY;
         let zoomFactor = 1.1;
         if(delta > 0) {
             zoomFactor = 1/zoomFactor;
         }
 
+        // Clamp the zoomFactor such that the time range is at least 1 day and at most 14 days
+        let minTimeRange = 1000 * 60 * 60 * 24;
+        let maxTimeRange = 1000 * 60 * 60 * 24 * 14;
+        let rangeDuration = $timeRange[1] - $timeRange[0];
+        if(rangeDuration * zoomFactor < minTimeRange) {
+            zoomFactor = minTimeRange / rangeDuration;
+        } else if(rangeDuration * zoomFactor > maxTimeRange) {
+            zoomFactor = maxTimeRange / rangeDuration;
+        }
+
+
         let newTimeRange = $timeRange.map(t => time + (t - time) * zoomFactor);
         $timeRange = newTimeRange;
 
-        animate = false;
-        setTimeout(() => {
-            animate = true;
-        }, 0);
+        $animate = false;
+        clearTimeout(scrollTimeout);
+        scrollTimeout = setTimeout(() => {
+            $animate = true;
+        }, 100);
     }
 
-    let duration = 300;
-
-    /**
-     * @param {number} time
-     */
-    function translateX(time) {
-        return `transform: translate(${x(time)}px)`
-    }
+    $: duration = $animate ? 300 : 0;
 </script>
 
 <div class="timezone">
@@ -406,7 +420,7 @@
             {/each}
         </select>
     </div>
-    <svg class={`${animate ? "animate" : ""}`} bind:this={svg} height="3em">
+    <svg class={`${_animate ? "animate" : ""}`} bind:this={svg} height="3em">
         <defs>
             <linearGradient id="sun-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
                 <stop offset="0%" stop-color="rgb(255, 204, 0)" stop-opacity="0.3" />
@@ -428,9 +442,9 @@
             {#each localTimezones as tz (tz.time_start)}
                 <g class={`ticks local ${tz.dst ? "dst":""}`} style={`transform: translate(${x(0) - x(tz.gmt_offset)}px)`}>
                     {#each localTimezoneHourTicks[localTimezones.indexOf(tz)] as tick (tick.h)}
-                        <line out:delay={{duration}} class={`${tick.day ? "midnight" : ""}`} x1={x(tick.h)} x2={x(tick.h)} y1={y(0)} y2={y(1)} />
+                        <line out:delay class={`${tick.day ? "midnight" : ""}`} x1={x(tick.h)} x2={x(tick.h)} y1={y(0)} y2={y(1)} />
                         {#if tick.day}
-                            <text out:delay={{duration}} x={x(tick.h)} y={y(1)} dy="1em" text-anchor="start">{tick.day}</text>
+                            <text out:delay x={x(tick.h)} y={y(1)} dy="1em" text-anchor="start">{tick.day}</text>
                         {/if}
                     {/each}
                 </g>
@@ -504,13 +518,9 @@
     }
 
     svg.animate {
-        --duration: 3s;
+        --duration: 0.3s;
 
         g.timeline, g.localTime, g.local {
-            transition: transform var(--duration) ease-in-out;
-        }
-
-        line, text {
             transition: transform var(--duration) ease-in-out;
         }
     }
