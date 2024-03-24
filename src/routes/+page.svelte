@@ -180,24 +180,79 @@
 	}
 
 
-	/**
-	 * @param {number} dateTime
-	 */
-	function formatDate(dateTime) {
-		return new Date(dateTime).toISOString().replace(/-|:|\.\d+/g, '');
-	}
-
 	function redirectToEventCreation() {
 		if(!$selection) return;
 
 		const baseUrl = 'https://calendar.google.com/calendar/r/eventedit';
 		const params = new URLSearchParams();
 
+		/**
+		 * @param {number} dateTime
+		 */
+		function formatDate(dateTime) {
+			return new Date(dateTime).toISOString().replace(/-|:|\.\d+/g, '');
+		}
+
 		params.append('dates', `${formatDate($selection[0])}/${formatDate($selection[1])}`);
 		// Add more parameters as needed (e.g., location, description, etc.)
 
 		const eventUrl = `${baseUrl}?${params.toString()}`;
 		window.open(eventUrl);
+	}
+
+	function openICalEvent() {
+		if(!$selection) return;
+
+		function generateUniqueId() {
+			return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+				const r = (Math.random() * 16) | 0;
+				const v = c === 'x' ? r : (r & 0x3) | 0x8;
+				return v.toString(16);
+			});
+		}
+
+		/**
+		 * @param {Date|number} dateTime
+		 * @param {boolean} [withTime=false]
+		 */
+		function formatDate(dateTime, withTime = false) {
+			if (typeof dateTime === 'number') {
+				dateTime = new Date(dateTime);
+			}
+
+			const year = dateTime.getUTCFullYear().toString();
+			const month = (dateTime.getUTCMonth() + 1).toString().padStart(2, '0');
+			const day = dateTime.getUTCDate().toString().padStart(2, '0');
+			
+			if (withTime) {
+				const hours = dateTime.getUTCHours().toString().padStart(2, '0');
+				const minutes = dateTime.getUTCMinutes().toString().padStart(2, '0');
+				const seconds = dateTime.getUTCSeconds().toString().padStart(2, '0');
+				return `${year}${month}${day}T${hours}${minutes}${seconds}Z`;
+			} else {
+				return `${year}${month}${day}`;
+			}
+		}
+
+		const icalEvent = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Cross-Timezone Events//Event Creator//EN
+BEGIN:VEVENT
+UID:${generateUniqueId()}
+DTSTAMP:${formatDate(Date.now(), true)}
+DTSTART:${formatDate($selection[0], true)}
+DTEND:${formatDate($selection[1], true)}
+SUMMARY:New Event
+END:VEVENT
+END:VCALENDAR`;
+
+		const blob = new Blob([icalEvent], { type: 'text/calendar;charset=utf-8' });
+		const url = URL.createObjectURL(blob);
+		const link = document.createElement('a');
+		link.href = url;
+		link.download = 'event.ics';
+		link.click();
+		URL.revokeObjectURL(url);
 	}
 
 </script>
@@ -225,6 +280,7 @@ A simple way to coordinate cross-timezone events.
 <p>
 	<button on:click={copyStart} disabled={!$selection}>Copy Start Times</button>
 	<button on:click={redirectToEventCreation} disabled={!$selection}>Create Google Calendar Event</button>
+	<button on:click={openICalEvent} disabled={!$selection}>Download iCal Event</button>
 </p>
 
 <p>
