@@ -317,6 +317,18 @@
         return dayTicks.includes(date);
     }
 
+    /**
+     * Svelte Transition function to delay the disappearance of the hour marks when the time range changes
+     * @param {SVGElement} node
+     * @param {{duration:number}} param
+     * 
+    */
+    function delay(node, {duration}) {
+        return {
+            duration,
+            
+        }
+    }
 </script>
 
 <div class="timezone">
@@ -345,9 +357,9 @@
             {#each localTimezones as tz}
                 <g class={`ticks local ${tz.dst ? "dst":""}`} style={`transform: translate(${x(0) - x(tz.gmt_offset)}px)`}>
                     {#each localTimezoneHourTicks[localTimezones.indexOf(tz)] as tick (tick)}
-                        <line class={`${tick.day ? "midnight" : ""}`} x1={x(tick.h)} x2={x(tick.h)} y1={y(0)} y2={y(1)} />
+                        <line out:delay={{duration:300}} class={`${tick.day ? "midnight" : ""}`} x1={x(tick.h)} x2={x(tick.h)} y1={y(0)} y2={y(1)} />
                         {#if tick.day}
-                            <text x={x(tick.h)} y={y(1)} dy="1em" text-anchor="start">{tick.day}</text>
+                            <text out:delay={{duration:300}} x={x(tick.h)} y={y(1)} dy="1em" text-anchor="start">{tick.day}</text>
                         {/if}
                     {/each}
                 </g>
