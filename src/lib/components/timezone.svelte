@@ -199,40 +199,6 @@
         timeZone: value
     }).format;
 
-    /** 
-     * An array of ticks for each hour across 3 days, centred on the anchor time
-     * @type {number[]}
-     */
-     let hourTicks = [];
-    $: {
-        hourTicks = [];
-        const hour = 1000 * 60 * 60;
-        let start = Math.floor(timezoneTimeRange[0] / hour) * hour;
-        for(let h = start; h < timezoneTimeRange[1] + hour; h += hour) {
-            hourTicks.push(h);
-        }
-    }
-
-    /**
-     * Array of days where it's midnight in the selected timezone
-     * Calculated from x.domain()
-     * @type {number[]}
-     */
-    let dayTicks = [];
-    $: {
-        dayTicks = [];
-
-        const day = 1000 * 60 * 60 * 24;
-        let start = timezoneTimeRange[0];
-        start = Math.floor((start - getTimezoneOffset(start, value)) / day) * day;
-        
-        for(let d = start; d < timezoneTimeRange[1] + day; d += day) {
-            dayTicks.push(d);
-        }
-    }
-
-
-
     export let cities = readable([]);
 
     /** @type {[number, number] | undefined} */
@@ -321,11 +287,6 @@
         sunArea = sunArea;
     }
 
-    /** @type {(date:number)=>boolean} */
-    $: isMidnight = (date) => {
-        return dayTicks.includes(date);
-    }
-
     /**
      * Svelte Transition function to delay the disappearance of the hour marks when the time range changes
      * @param {SVGElement} node
@@ -349,6 +310,8 @@
      */
      export let hover = writable(null);
 
+    const minSelectionBlock = 1000 * 60 * 15;
+
     /**
      * Update the hover store with the hovered time
      * @param {MouseEvent} event
@@ -362,7 +325,75 @@
             time = time.getTime();
         }
 
+        // Snap to nearest 15 min block
+        time = Math.floor(time / minSelectionBlock) * minSelectionBlock;
+
         $hover = time;
+
+        onUpdateSelection();
+    }
+
+
+    /** @type {number|undefined} */
+    let selectionStart;
+
+    function onStartSelection() {
+        if(!$hover) return;
+        selectionStart = $hover;
+        $selection = [selectionStart, selectionStart + minSelectionBlock];
+    }
+
+    function onUpdateSelection() {
+        if(selectionStart && $hover) {
+            if($hover < selectionStart) {
+                $selection = [$hover, selectionStart + minSelectionBlock];
+            } else {
+                $selection = [selectionStart, $hover + minSelectionBlock];
+            }
+        }
+    }
+
+    function onEndSelection() {
+        selectionStart = undefined;
+    }
+
+    /**
+     * @type {import('svelte/elements').UIEventHandler<SVGRectElement>}
+     */
+    let onScroll = (event)=> {
+        // Zoom in or out based on the scroll direction
+        // With the zoom centred on the mouse position
+
+        // @ts-ignore
+        let eventX = event.clientX - event.target?.getBoundingClientRect().left;
+        let time = x.invert(eventX + x($timeRange[0]) - x(anchorTime));
+
+        if(time instanceof Date) {
+            time = time.getTime();
+        }
+
+        let delta = event.deltaY;
+        let zoomFactor = 1.1;
+        if(delta > 0) {
+            zoomFactor = 1/zoomFactor;
+        }
+
+        let newTimeRange = $timeRange.map(t => time + (t - time) * zoomFactor);
+        $timeRange = newTimeRange;
+
+        animate = false;
+        setTimeout(() => {
+            animate = true;
+        }, 0);
+    }
+
+    let duration = 300;
+
+    /**
+     * @param {number} time
+     */
+    function translateX(time) {
+        return `transform: translate(${x(time)}px)`
     }
 </script>
 
@@ -383,18 +414,23 @@
             </linearGradient>
         </defs>
         <g class={`timeline`} style={`transform: translate(${x(anchorTime) - x($timeRange[0])}px)`}>
+            {#if $selection}
+                <rect class="selection" x={x($selection[0])} y={y(0)} width={x($selection[1]) - x($selection[0])} height={y(1) - y(0)} />
+            {/if}
+
+
             <g class="localTime" style={`transform: translate(${x(0) - x(timezoneOffset)}px)`}>
                 <g class="sun">
                     <path class="area" d={sunArea(sunElevation)} />
                     <path class="outline" d={sunArea.lineY1()(sunElevation)} />
                 </g>
             </g>
-            {#each localTimezones as tz}
+            {#each localTimezones as tz (tz.time_start)}
                 <g class={`ticks local ${tz.dst ? "dst":""}`} style={`transform: translate(${x(0) - x(tz.gmt_offset)}px)`}>
-                    {#each localTimezoneHourTicks[localTimezones.indexOf(tz)] as tick (tick)}
-                        <line out:delay={{duration:300}} class={`${tick.day ? "midnight" : ""}`} x1={x(tick.h)} x2={x(tick.h)} y1={y(0)} y2={y(1)} />
+                    {#each localTimezoneHourTicks[localTimezones.indexOf(tz)] as tick (tick.h)}
+                        <line out:delay={{duration}} class={`${tick.day ? "midnight" : ""}`} x1={x(tick.h)} x2={x(tick.h)} y1={y(0)} y2={y(1)} />
                         {#if tick.day}
-                            <text out:delay={{duration:300}} x={x(tick.h)} y={y(1)} dy="1em" text-anchor="start">{tick.day}</text>
+                            <text out:delay={{duration}} x={x(tick.h)} y={y(1)} dy="1em" text-anchor="start">{tick.day}</text>
                         {/if}
                     {/each}
                 </g>
@@ -405,16 +441,21 @@
                 <text x={x(now)} y={y(0)} dx="-0.3em" dy={-2} text-anchor="end">{formatDate(now)}</text>
             </g>
 
-            {#if hover}
+            {#if $hover}
                 <g class="hover">
+                    <rect class="backing" x={x($hover)} y={y(0)-15} width="100" height={15} />
                     <text x={x($hover ?? 0)} y={y(0)} dy={-2} text-anchor="start">{formatDateTime($hover ?? 0)}</text>
                 </g>
             {/if}
         </g>
 
+        <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
         <rect class="hitarea" x={x.range()[0]} y={y.range()[0]} width={Math.abs(x.range()[1] - x.range()[0])} height={Math.abs(y.range()[1] - y.range()[0])} fill="transparent" stroke="none" 
             on:mousemove={onHover}
             on:mouseleave={() => $hover = null}
+            on:mousedown={onStartSelection}
+            on:mouseup={onEndSelection}
+            on:wheel={onScroll}
             role="application"
             tabindex="-1"
         />
@@ -458,12 +499,26 @@
 
         .hitarea {
             cursor: cell;
+            outline: none;
         }
     }
 
     svg.animate {
+        --duration: 3s;
+
         g.timeline, g.localTime, g.local {
-            transition: transform 0.3s ease-in-out;
+            transition: transform var(--duration) ease-in-out;
+        }
+
+        line, text {
+            transition: transform var(--duration) ease-in-out;
+        }
+    }
+
+    g.hover {
+        .backing {
+            fill: #fff9;
+            stroke: none;
         }
     }
 
