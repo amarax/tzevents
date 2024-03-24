@@ -132,7 +132,8 @@
 
 	let anchorTime = Date.now();
 
-	let timeRange = writable([anchorTime, anchorTime + 3 * 24 * 60 * 60 * 1000]);
+	const day = 24 * 60 * 60 * 1000;	
+	let timeRange = writable([anchorTime - .5*day, anchorTime + 2 * day]);
 
 	/**
 	 * Offset the time range by a given offset in milliseconds.
@@ -142,7 +143,6 @@
 		$timeRange = $timeRange.map(t=>t + offset);
 	}
 
-	const day = 24 * 60 * 60 * 1000;
 
 	let hover = writable(null);
 	let selection = writable(null);
@@ -178,6 +178,28 @@
 
 		navigator.clipboard.writeText(localTimes.join(", "));
 	}
+
+
+	/**
+	 * @param {number} dateTime
+	 */
+	function formatDate(dateTime) {
+		return new Date(dateTime).toISOString().replace(/-|:|\.\d+/g, '');
+	}
+
+	function redirectToEventCreation() {
+		if(!$selection) return;
+
+		const baseUrl = 'https://calendar.google.com/calendar/r/eventedit';
+		const params = new URLSearchParams();
+
+		params.append('dates', `${formatDate($selection[0])}/${formatDate($selection[1])}`);
+		// Add more parameters as needed (e.g., location, description, etc.)
+
+		const eventUrl = `${baseUrl}?${params.toString()}`;
+		window.open(eventUrl);
+	}
+
 </script>
 
 <svelte:head>
@@ -189,7 +211,7 @@ A simple way to coordinate cross-timezone events.
 <p>
 	<button on:click={() => offsetTimeRange(-7 * day)}>&lt;&lt;</button>
 	<button on:click={() => offsetTimeRange(-day)}>&lt;</button>
-	{new Date($timeRange[0]).toLocaleString()}
+	<button on:click={()=>$timeRange = [Date.now()-.5*day,Date.now()+2*day]}>Today</button>
 	<button on:click={() => offsetTimeRange(day)}>&gt;</button>
 	<button on:click={() => offsetTimeRange(7 * day)}>&gt;&gt;</button>
 </p>
@@ -202,6 +224,7 @@ A simple way to coordinate cross-timezone events.
 
 <p>
 	<button on:click={copyStart} disabled={!$selection}>Copy Start Times</button>
+	<button on:click={redirectToEventCreation} disabled={!$selection}>Create Google Calendar Event</button>
 </p>
 
 <p>

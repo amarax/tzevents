@@ -71,7 +71,7 @@
         if(svg) {
             $animate = false;
 
-            let yMargin = 12;
+            let yMargin = 16*1.2;
             x.range([0, svg.clientWidth]);
             y.range([yMargin, svg.clientHeight-yMargin]);
         }
@@ -98,6 +98,10 @@
             _initalised = true;
             _animate = $animate;
         });
+
+        if(searchInput) {
+            searchInput.focus();
+        }
 
         return () => {
             window.removeEventListener("resize", onresize);
@@ -201,7 +205,7 @@
         const hour = 1000 * 60 * 60;
         const day = 1000 * 60 * 60 * 24;
 
-        let workHours = [8, 19];
+        let workHours = [8, 18];
         workHours = workHours.map(h => h * hour);
         
         let start = Math.max($timeRange[0], tz.time_start);
@@ -407,7 +411,7 @@
         }
 
         // Snap to nearest 15 min block
-        time = Math.floor(time / minSelectionBlock) * minSelectionBlock;
+        time = Math.round(time / minSelectionBlock) * minSelectionBlock;
 
         $hover = time;
 
@@ -426,10 +430,12 @@
 
     function onUpdateSelection() {
         if(selectionStart && $hover) {
-            if($hover < selectionStart) {
+            if($hover == selectionStart) {
                 $selection = [$hover, selectionStart + minSelectionBlock];
+            } else if($hover < selectionStart) {
+                $selection = [$hover, selectionStart];
             } else {
-                $selection = [selectionStart, $hover + minSelectionBlock];
+                $selection = [selectionStart, $hover];
             }
         }
     }
@@ -458,7 +464,7 @@
         }
 
         // @ts-ignore
-        let delta = event.deltaY;
+        let delta = -event.deltaY;
         let zoomFactor = 1.1;
         if(delta > 0) {
             zoomFactor = 1/zoomFactor;
@@ -482,7 +488,7 @@
         clearTimeout(scrollTimeout);
         scrollTimeout = setTimeout(() => {
             $animate = true;
-        }, 100);
+        }, 500);
     }
 
     $: duration = $animate ? 300 : 0;
@@ -493,18 +499,21 @@
     $: translateX = (time) =>{
         return `transform: translate(${x(time)}px)`
     }
+
+    /** @type {HTMLInputElement} */
+    let searchInput;
 </script>
 
 <div class="timezone">
     <div>
-        <input type="search" class="search" bind:value={searchString} placeholder="Search" on:keydown={onSearchStringChange} />
+        <input type="search" class="search" bind:this={searchInput} bind:value={searchString} placeholder="Search" on:keydown={onSearchStringChange} />
         <select class="timezone" bind:value={dropdownValue}>
             {#each timezoneSearchResults as timezoneName}
                 <option value={timezoneName}>{timezoneName}</option>
             {/each}
         </select>
     </div>
-    <svg class={`${_animate ? "animate" : ""}`} bind:this={svg} height="3em">
+    <svg class={`${_animate ? "animate" : ""}`} bind:this={svg} height="4em">
         <defs>
             <linearGradient id="sun-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
                 <stop offset="0%" stop-color="rgb(255, 204, 0)" stop-opacity="0.3" />
@@ -535,7 +544,7 @@
                         {/if}
                     {/each}
                     {#each localTimezoneOffWorkHours[localTimezones.indexOf(tz)] as block (block[0])}
-                        <rect out:delay={{duration}} x={x(block[0])} y={y(0)} width={x(block[1]) - x(block[0])} height={y(1) - y(0)} fill="#f00" fill-opacity="0.1" />
+                        <rect class="offWork" out:delay={{duration}} x={x(block[0])} y={y(0)} width={x(block[1]) - x(block[0])} height={y(1) - y(0)} fill="#f00" fill-opacity="0.1" />
                     {/each}
                 </g>
             {/each}
@@ -548,7 +557,8 @@
             {#if $hover}
                 <g class="hover">
                     <rect class="backing" x={x($hover)} y={y(0)-15} width="100" height={15} />
-                    <text x={x($hover ?? 0)} y={y(0)} dy={-2} text-anchor="start">{formatDateTime($hover ?? 0)}</text>
+                    <text x={x($hover)} y={y(0)} dy={-2} text-anchor="start">{formatDateTime($hover)}</text>
+                    <rect class="marker" x={x($hover)} y={y(0)} width="1" height={y(1) - y(0)} />
                 </g>
             {/if}
         </g>
@@ -597,7 +607,7 @@
         user-select: none;
 
         text {
-            font-size: 10px;
+            font-size: 14px;
             font-family: sans-serif;
         }
 
@@ -629,6 +639,10 @@
             fill: #fff9;
             stroke: none;
         }
+
+        .marker {
+            fill: #000;
+        }
     }
 
     g.sun {
@@ -659,8 +673,12 @@
             }
 
             &.dst line {
-            stroke: #de980088;
-        }
+                stroke: #de980088;
+            }
+
+            .offWork {
+                fill: #0009;
+            }
 
         }
         
