@@ -174,6 +174,8 @@
 		// @ts-ignore
 		let localTimes = selectedTimezones.map(tz=>tz + ": " + getTimeString($selection[0], tz));
 
+		console.log(localTimes.join(", "));
+
 		navigator.clipboard.writeText(localTimes.join(", "));
 	}
 </script>
@@ -199,7 +201,7 @@ A simple way to coordinate cross-timezone events.
 </p>
 
 <p>
-	<button on:click={copyStart}>Copy Start Times</button>
+	<button on:click={copyStart} disabled={!$selection}>Copy Start Times</button>
 </p>
 
 <p>
