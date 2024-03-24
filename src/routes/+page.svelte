@@ -148,6 +148,34 @@
 	let selection = writable(null);
 
 	let animate = writable(true);
+
+	// Function to copy the start of the selected time range
+	// For all the timezones, to the clipboard
+	function copyStart() {
+		if($selection === null) return;
+
+		/**
+		 * @param {number} time
+		 * @param {string} timezone
+		 * @returns {string}
+		 */
+		function getTimeString(time, timezone) {
+			return Intl.DateTimeFormat(undefined, {
+				weekday: 'short',
+				month: 'short',
+				day: 'numeric',
+				hour: 'numeric',
+				hour12: true,
+				minute: 'numeric',
+				timeZone: timezone
+			}).format(time);
+		}
+
+		// @ts-ignore
+		let localTimes = selectedTimezones.map(tz=>tz + ": " + getTimeString($selection[0], tz));
+
+		navigator.clipboard.writeText(localTimes.join(", "));
+	}
 </script>
 
 <svelte:head>
@@ -168,6 +196,10 @@ A simple way to coordinate cross-timezone events.
 		<Timezone {timezoneNames} {timezones} {cities} {anchorTime} {timeRange} {hover} {selection} {animate} bind:value={timezone} />
 	{/each}
 	<button on:click={() => selectedTimezones = [...selectedTimezones, defaultTimezone]}>Add Timezone</button>
+</p>
+
+<p>
+	<button on:click={copyStart}>Copy Start Times</button>
 </p>
 
 <p>
