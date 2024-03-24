@@ -190,6 +190,15 @@
         timeZone: value
     }).format;
 
+    $: formatDateTime = Intl.DateTimeFormat(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: 'numeric',
+        timeZone: value
+    }).format;
+
     /** 
      * An array of ticks for each hour across 3 days, centred on the anchor time
      * @type {number[]}
@@ -329,6 +338,32 @@
             
         }
     }
+
+    /**
+     * @type {import('svelte/store').Writable<null|[number,number]>}
+     */
+    export let selection = writable(null);
+
+    /**
+     * @type {import('svelte/store').Writable<null|number>}
+     */
+     export let hover = writable(null);
+
+    /**
+     * Update the hover store with the hovered time
+     * @param {MouseEvent} event
+     */
+    function onHover(event) {
+        // @ts-ignore
+        let eventX = event.clientX - event.target?.getBoundingClientRect().left;
+        let time = x.invert(eventX + x($timeRange[0]) - x(anchorTime));
+
+        if(time instanceof Date) {
+            time = time.getTime();
+        }
+
+        $hover = time;
+    }
 </script>
 
 <div class="timezone">
@@ -369,7 +404,20 @@
                 <text x={x(now)} y={y(0)} dy={-2} text-anchor="start">{formatTime(now)}</text>
                 <text x={x(now)} y={y(0)} dx="-0.3em" dy={-2} text-anchor="end">{formatDate(now)}</text>
             </g>
+
+            {#if hover}
+                <g class="hover">
+                    <text x={x($hover ?? 0)} y={y(0)} dy={-2} text-anchor="start">{formatDateTime($hover ?? 0)}</text>
+                </g>
+            {/if}
         </g>
+
+        <rect class="hitarea" x={x.range()[0]} y={y.range()[0]} width={Math.abs(x.range()[1] - x.range()[0])} height={Math.abs(y.range()[1] - y.range()[0])} fill="transparent" stroke="none" 
+            on:mousemove={onHover}
+            on:mouseleave={() => $hover = null}
+            role="application"
+            tabindex="-1"
+        />
     </svg>
 </div>
 
@@ -407,16 +455,16 @@
             font-size: 10px;
             font-family: sans-serif;
         }
+
+        .hitarea {
+            cursor: cell;
+        }
     }
 
     svg.animate {
         g.timeline, g.localTime, g.local {
             transition: transform 0.3s ease-in-out;
         }
-    }
-
-    g.timeline {
-        cursor: cell;
     }
 
     g.sun {

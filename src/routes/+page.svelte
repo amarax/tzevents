@@ -143,6 +143,8 @@
 	}
 
 	const day = 24 * 60 * 60 * 1000;
+
+	let hover = writable(null);
 </script>
 
 <svelte:head>
@@ -160,7 +162,7 @@ A simple way to coordinate cross-timezone events.
 </p>
 <p>
 	{#each selectedTimezones as timezone}
-		<Timezone {timezoneNames} {timezones} {cities} {anchorTime} {timeRange} bind:value={timezone} />
+		<Timezone {timezoneNames} {timezones} {cities} {anchorTime} {timeRange} {hover} bind:value={timezone} />
 	{/each}
 	<button on:click={() => selectedTimezones = [...selectedTimezones, defaultTimezone]}>Add Timezone</button>
 </p>
