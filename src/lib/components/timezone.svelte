@@ -65,8 +65,12 @@
     /** @type {SVGSVGElement} */
     let svg;
 
+    /** @type {number} */
+    let resizeTimeout;
     function onresize() {
         if(svg) {
+            $animate = false;
+
             let yMargin = 12;
             x.range([0, svg.clientWidth]);
             y.range([yMargin, svg.clientHeight-yMargin]);
@@ -74,6 +78,11 @@
         x = x;
         y = y;
         sunY = sunY;
+
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+            $animate = true;
+        }, 100);
     }
 
     export let animate = writable(true);
@@ -85,9 +94,10 @@
         onresize();
 
         // Only start animation after the first render
-        setTimeout(() => {
+        requestAnimationFrame(() => {
             _initalised = true;
-        }, 0);
+            _animate = $animate;
+        });
 
         return () => {
             window.removeEventListener("resize", onresize);
@@ -164,6 +174,13 @@
         
         /** @type {{h:number, day?:string}[]}*/
         let ticks = [];
+
+        if(i == 0) {
+            let dayStart = Math.floor(start / day) * day;
+            if(dayStart < start)
+                ticks.push({h: dayStart, day: formatDate(dayStart - tz.gmt_offset)});
+        }
+
         for(let h = start; h < end + tickInterval; h += tickInterval) {
             /** @type {{h:number, day?:string}} */
             let tick = {h};
@@ -172,9 +189,55 @@
             }
             ticks.push(tick);
         }
+
         return ticks;
     });
 
+    /**
+     * Identify the work hours for each local timezone
+     * @type {[number,number][][]}
+     */
+    $: localTimezoneOffWorkHours = localTimezones.map((tz, i, a) => {
+        const hour = 1000 * 60 * 60;
+        const day = 1000 * 60 * 60 * 24;
+
+        let workHours = [8, 19];
+        workHours = workHours.map(h => h * hour);
+        
+        let start = Math.max($timeRange[0], tz.time_start);
+        start += tz.gmt_offset;
+        start = Math.floor(start / day) * day;
+        if(i > 0) {
+            start = a[i].time_start + tz.gmt_offset;
+        }
+
+        let end = $timeRange[1];
+        end += tz.gmt_offset;
+        end = Math.ceil(end / day) * day;
+        if(i < a.length - 1) {
+            end = a[i+1].time_start + tz.gmt_offset;
+        }
+
+        /** @type {[number,number][]} */
+        let blocks = [];
+
+        while(start <= end) {
+            let dayStart = Math.floor(start / day) * day;
+            let workStart = dayStart + workHours[0];
+            let workEnd = dayStart + workHours[1];
+
+            if(workStart > start) {
+                blocks.push([Math.max(start, dayStart), Math.min(end, workStart)]);
+            }
+            if(workEnd < end) {
+                blocks.push([Math.max(start, workEnd), Math.min(end, dayStart + day)]);
+            }
+
+            start = dayStart + day;
+        }
+
+        return blocks;
+    });
 
 
     // Update now every second
@@ -246,7 +309,18 @@
         if(location) {
             // Get the sunrise and sunset times between the first and last hour ticks
             const day = 1000 * 60 * 60 * 24;
-            for(let d = timezoneTimeRange[0]; d < timezoneTimeRange[1] + day; d += day) {
+
+            let start = $timeRange[0] + getTimezoneOffset($timeRange[0], value);
+            start = Math.floor(start / day) * day;
+            start -= day;
+
+            let end = $timeRange[1] + getTimezoneOffset($timeRange[1], value);
+            end = Math.ceil(end / day) * day;
+            end += day;
+
+            let d = start;
+
+            while(d <= end) {
                 let sunTimes = SunCalc.getTimes(d, location[0], location[1]);
                 // @ts-ignore sunrise exists
                 let sunrise = sunTimes.sunrise.getTime();
@@ -271,6 +345,8 @@
                 sunElevation.push([t, sunPos.altitude]);
 
                 sunElevation.push([sunset+1, null]);
+
+                d += day;
             }
         }
     }
@@ -295,9 +371,10 @@
     /**
      * Svelte Transition function to delay the disappearance of the hour marks when the time range changes
      * @param {SVGElement} node
+     * @param {{duration: number}} param
      * 
     */
-    function delay(node) {
+    function delay(node, {duration}) {
         return {
             duration,
             
@@ -409,6 +486,13 @@
     }
 
     $: duration = $animate ? 300 : 0;
+
+    /**
+     * @type {(time: number) => string}
+     */
+    $: translateX = (time) =>{
+        return `transform: translate(${x(time)}px)`
+    }
 </script>
 
 <div class="timezone">
@@ -436,27 +520,29 @@
             </g>
             {/if}
 
-
             <g class="localTime" style={`transform: translate(${x(0) - x(timezoneOffset)}px)`}>
                 <g class="sun">
                     <path class="area" d={sunArea(sunElevation)} />
                     <path class="outline" d={sunArea.lineY1()(sunElevation)} />
                 </g>
             </g>
-            {#each localTimezones as tz (tz.time_start)}
+            {#each localTimezones as tz}
                 <g class={`ticks local ${tz.dst ? "dst":""}`} style={`transform: translate(${x(0) - x(tz.gmt_offset)}px)`}>
                     {#each localTimezoneHourTicks[localTimezones.indexOf(tz)] as tick (tick.h)}
-                        <line out:delay class={`${tick.day ? "midnight" : ""}`} x1={x(tick.h)} x2={x(tick.h)} y1={y(0)} y2={y(1)} />
+                        <line out:delay={{duration}} class={`${tick.day ? "midnight" : ""}`} x1={x(tick.h)} x2={x(tick.h)} y1={y(0)} y2={y(1)} />
                         {#if tick.day}
-                            <text out:delay x={x(tick.h)} y={y(1)} dy="1em" text-anchor="start">{tick.day}</text>
+                            <text out:delay={{duration}} x={x(tick.h)} y={y(1)} dy="1em" text-anchor="start">{tick.day}</text>
                         {/if}
+                    {/each}
+                    {#each localTimezoneOffWorkHours[localTimezones.indexOf(tz)] as block}
+                        <rect out:delay={{duration}} x={x(block[0])} y={y(0)} width={x(block[1]) - x(block[0])} height={y(1) - y(0)} fill="#f00" fill-opacity="0.1" />
                     {/each}
                 </g>
             {/each}
-            <g class="now">
-                <line x1={x(now)} x2={x(now)} y1={y(0)} y2={y(1)} />
-                <text x={x(now)} y={y(0)} dy={-2} text-anchor="start">{formatTime(now)}</text>
-                <text x={x(now)} y={y(0)} dx="-0.3em" dy={-2} text-anchor="end">{formatDate(now)}</text>
+            <g class="now" style={translateX(now)}>
+                <line x1={0} x2={0} y1={y(0)} y2={y(1)} />
+                <text x={0} y={y(0)} dy={-2} text-anchor="start">{formatTime(now)}</text>
+                <text x={0} y={y(0)} dx="-0.3em" dy={-2} text-anchor="end">{formatDate(now)}</text>
             </g>
 
             {#if $hover}
@@ -521,8 +607,12 @@
         }
 
         .selection {
-            fill: #00aaff74;
+            fill: #00aaff;
             stroke: none;
+
+            rect {
+                opacity: 0.3;
+            }
         }
     }
 
@@ -584,14 +674,10 @@
 
         line {
             stroke: var(--color-now);
-
-            transition: all 0.3s;
         }
 
         text {
             fill: var(--color-now);
-
-            transition: x 0.3s;
         }
     }
 </style>
