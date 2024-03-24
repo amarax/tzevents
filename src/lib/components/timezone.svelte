@@ -534,7 +534,7 @@
                             <text out:delay={{duration}} x={x(tick.h)} y={y(1)} dy="1em" text-anchor="start">{tick.day}</text>
                         {/if}
                     {/each}
-                    {#each localTimezoneOffWorkHours[localTimezones.indexOf(tz)] as block}
+                    {#each localTimezoneOffWorkHours[localTimezones.indexOf(tz)] as block (block[0])}
                         <rect out:delay={{duration}} x={x(block[0])} y={y(0)} width={x(block[1]) - x(block[0])} height={y(1) - y(0)} fill="#f00" fill-opacity="0.1" />
                     {/each}
                 </g>
