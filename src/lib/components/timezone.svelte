@@ -429,7 +429,11 @@
         </defs>
         <g class={`timeline`} style={`transform: translate(${x(anchorTime) - x($timeRange[0])}px)`}>
             {#if $selection}
-                <rect class="selection" x={x($selection[0])} y={y(0)} width={x($selection[1]) - x($selection[0])} height={y(1) - y(0)} />
+            <g class="selection">
+                <rect x={x($selection[0])} y={y(0)} width={x($selection[1]) - x($selection[0])} height={y(1) - y(0)} />
+                <text x={x($selection[0])} y={y(0)} dy={-2} text-anchor="end">{formatDateTime($selection[0])}</text>
+                <text x={x($selection[1])} y={y(0)} dy={-2} text-anchor="start">{formatDateTime($selection[1])}</text>
+            </g>
             {/if}
 
 
@@ -466,7 +470,7 @@
         <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
         <rect class="hitarea" x={x.range()[0]} y={y.range()[0]} width={Math.abs(x.range()[1] - x.range()[0])} height={Math.abs(y.range()[1] - y.range()[0])} fill="transparent" stroke="none" 
             on:mousemove={onHover}
-            on:mouseleave={() => $hover = null}
+            on:mouseleave={() => {$hover = null; onEndSelection()}}
             on:mousedown={onStartSelection}
             on:mouseup={onEndSelection}
             on:wheel={onScroll}
@@ -515,6 +519,11 @@
             cursor: cell;
             outline: none;
         }
+
+        .selection {
+            fill: #00aaff74;
+            stroke: none;
+        }
     }
 
     svg.animate {
@@ -551,7 +560,7 @@
     g.ticks {
         &.local {
             line {
-                stroke: #00aaff88;
+                stroke: #a4a4a488;
                 stroke-width: 1px;
 
                 &.midnight {
@@ -560,7 +569,7 @@
             }
 
             &.dst line {
-            stroke: #ffae0088;
+            stroke: #de980088;
         }
 
         }
