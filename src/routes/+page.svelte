@@ -3,7 +3,7 @@
 	import Timezone from "$lib/components/timezone.svelte";
 	import { csvParse, csvParseRows } from "d3";
 	import { onMount } from "svelte";
-	import { derived, readable } from "svelte/store";
+	import { derived, readable, writable } from "svelte/store";
 
 
 	/**
@@ -132,14 +132,14 @@
 
 	let anchorTime = Date.now();
 
-	let timeRange = [anchorTime, anchorTime + 3 * 24 * 60 * 60 * 1000];
+	let timeRange = writable([anchorTime, anchorTime + 3 * 24 * 60 * 60 * 1000]);
 
 	/**
 	 * Offset the time range by a given offset in milliseconds.
 	 * @param {number} offset
 	 */
 	function offsetTimeRange(offset) {
-		timeRange = timeRange.map(t=>t + offset);
+		$timeRange = $timeRange.map(t=>t + offset);
 	}
 
 	const day = 24 * 60 * 60 * 1000;
@@ -154,7 +154,7 @@ A simple way to coordinate cross-timezone events.
 <p>
 	<button on:click={() => offsetTimeRange(-7 * day)}>&lt;&lt;</button>
 	<button on:click={() => offsetTimeRange(-day)}>&lt;</button>
-	{new Date(timeRange[0]).toLocaleString()}
+	{new Date($timeRange[0]).toLocaleString()}
 	<button on:click={() => offsetTimeRange(day)}>&gt;</button>
 	<button on:click={() => offsetTimeRange(7 * day)}>&gt;&gt;</button>
 </p>

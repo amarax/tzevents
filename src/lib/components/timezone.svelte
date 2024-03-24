@@ -1,10 +1,11 @@
 <script>
 	import * as d3 from 'd3';
 	import { onMount } from 'svelte';
-	import { readable } from "svelte/store";
+	import { readable, writable } from "svelte/store";
 
     import SunCalc from 'suncalc';
 	import { crossfade, draw, slide } from 'svelte/transition';
+	import { text } from '@sveltejs/kit';
 
 	/**
 	 * zone_name,country_code,abbreviation,time_start,gmt_offset,dst
@@ -13,7 +14,7 @@
 	 * @property {string} country_code
 	 * @property {string} abbreviation
 	 * @property {EpochTimeStamp} time_start 
-	 * @property {number} gmt_offset in seconds
+	 * @property {number} gmt_offset in milliseconds
 	 * @property {boolean} dst Whether daylight savings is in effect
 	 */
 
@@ -43,9 +44,9 @@
     }
     export let anchorTime = Date.now();
 
-    export let timeRange = [anchorTime, anchorTime + 3 * 1000 * 60 * 60 * 36];
+    export let timeRange = writable([anchorTime, anchorTime + 3 * 1000 * 60 * 60 * 36]);
 
-    $: timezoneTimeRange = timeRange.map(t => t + timezoneOffset);
+    $: timezoneTimeRange = $timeRange.map(t => t + timezoneOffset);
 
     let userTimezoneOffset = new Date().getTimezoneOffset() * 60 * 1000;
 
@@ -57,6 +58,7 @@
     }
     
     
+    
     let y = d3.scaleLinear()
         .domain([0,1])
 
@@ -65,8 +67,9 @@
 
     function onresize() {
         if(svg) {
+            let yMargin = 12;
             x.range([0, svg.clientWidth]);
-            y.range([10, svg.clientHeight-10]);
+            y.range([yMargin, svg.clientHeight-yMargin]);
         }
         x = x;
         y = y;
@@ -104,10 +107,69 @@
 
         let offsetInSeconds = $timezones[timezone]?.find(tz => tz.time_start <= _time)?.gmt_offset;
 
-        let tz = $timezones[timezone]?.find(tz => tz.time_start <= _time);
-
         return offsetInSeconds ?? 0;
     }
+
+    /**
+     * All local timezones that overlap with the timeRange
+     * @type {Timezone[]}
+     */
+    let localTimezones = [];
+    $: {
+        localTimezones = [];
+        let tz = $timezones[value];
+        
+        if(tz) {
+            // Sort by descending start time
+            tz = tz.filter(t=>t.time_start < $timeRange[1])
+                .sort((a,b) => b.time_start - a.time_start);
+
+            let i = 0;
+            while((i < tz.length) && (tz[i].time_start > $timeRange[0])) {
+                localTimezones.push(tz[i]);
+                i++;
+            }
+            // Add one more timezone to cover the entire timeRange
+            if(i < tz.length) {
+                localTimezones.push(tz[i]);
+            }
+        }
+
+        // Sort in ascending order
+        localTimezones = localTimezones.sort((a,b) => a.time_start - b.time_start);
+    }
+
+    $: localTimezoneHourTicks = localTimezones.map((tz, i, a) => {
+        const hour = 1000 * 60 * 60;
+        const day = 1000 * 60 * 60 * 24;
+
+        let ticksPerDay = 24;
+        let tickInterval = day / ticksPerDay;
+
+        let start = Math.max($timeRange[0], tz.time_start);
+        start += tz.gmt_offset;
+        start = Math.floor(start / tickInterval) * tickInterval;
+
+        let end = $timeRange[1];
+        if(i < a.length - 1) {
+            end = Math.min(end, a[i+1].time_start-1);
+        }
+        end += tz.gmt_offset;
+        end = Math.floor(end / tickInterval) * tickInterval;
+        
+        /** @type {{h:number, day?:string}[]}*/
+        let ticks = [];
+        for(let h = start; h < end + tickInterval; h += tickInterval) {
+            /** @type {{h:number, day?:string}} */
+            let tick = {h};
+            if(h % day == 0) {
+                tick.day = formatDate(h - tz.gmt_offset);
+            }
+            ticks.push(tick);
+        }
+        return ticks;
+    });
+
 
 
     // Update now every second
@@ -243,7 +305,7 @@
     let sunArea = d3.area()
     $:{
         sunArea
-            .x((/** @type {SunElevation} */ d) => x(d[0] + timezoneOffset))
+            .x((/** @type {SunElevation} */ d) => x(d[0] + getTimezoneOffset(d[0], value)))
             .y0(svg?.clientHeight || 10)
             .y1((/** @type {SunElevation} */ d) => sunY(d[1]))
             .defined((/** @type {SunElevation} */ d) => d[1] !== null);
@@ -273,21 +335,23 @@
                 <stop offset="100%" stop-color="rgb(255, 204, 0)" stop-opacity="0.05" />
             </linearGradient>
         </defs>
-        <g class={`timeline`} style={`transform: translate(${x(anchorTime) - x(timeRange[0])}px)`}>
-            <g class="timezone" style={`transform: translate(${x(0) - x(timezoneOffset)}px)`}>
+        <g class={`timeline`} style={`transform: translate(${x(anchorTime) - x($timeRange[0])}px)`}>
+            <g class="localTime" style={`transform: translate(${x(0) - x(timezoneOffset)}px)`}>
                 <g class="sun">
                     <path class="area" d={sunArea(sunElevation)} />
                     <path class="outline" d={sunArea.lineY1()(sunElevation)} />
                 </g>
-                <g class="ticks">
-                    {#each hourTicks as tick (tick)}
-                        <line class={`${isMidnight(tick) ? "midnight" : ""}`} x1={x(tick)} x2={x(tick)} y1={y(0)} y2={y(1)} />
-                    {/each}
-                    {#each dayTicks as tick (tick)}
-                        <text x={x(tick)} y={y(1)} dy="1em" text-anchor="start">{formatDate(tick)}</text>
+            </g>
+            {#each localTimezones as tz}
+                <g class={`ticks local ${tz.dst ? "dst":""}`} style={`transform: translate(${x(0) - x(tz.gmt_offset)}px)`}>
+                    {#each localTimezoneHourTicks[localTimezones.indexOf(tz)] as tick (tick)}
+                        <line class={`${tick.day ? "midnight" : ""}`} x1={x(tick.h)} x2={x(tick.h)} y1={y(0)} y2={y(1)} />
+                        {#if tick.day}
+                            <text x={x(tick.h)} y={y(1)} dy="1em" text-anchor="start">{tick.day}</text>
+                        {/if}
                     {/each}
                 </g>
-            </g>
+            {/each}
             <g class="now">
                 <line x1={x(now)} x2={x(now)} y1={y(0)} y2={y(1)} />
                 <text x={x(now)} y={y(0)} dy={-2} text-anchor="start">{formatTime(now)}</text>
@@ -334,7 +398,7 @@
     }
 
     svg.animate {
-        g.timeline, g.timezone {
+        g.timeline, g.localTime, g.local {
             transition: transform 0.3s ease-in-out;
         }
     }
@@ -360,12 +424,20 @@
     }
 
     g.ticks {
-        line {
-            stroke: #9993;
+        &.local {
+            line {
+                stroke: #00aaff88;
+                stroke-width: 1px;
 
-            &.midnight {
-                stroke: #9999;
+                &.midnight {
+                    stroke-width: 2px;
+                }
             }
+
+            &.dst line {
+            stroke: #ffae0088;
+        }
+
         }
         
         text {
