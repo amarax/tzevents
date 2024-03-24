@@ -4,6 +4,7 @@
 	import { readable } from "svelte/store";
 
     import SunCalc from 'suncalc';
+	import { crossfade, draw, slide } from 'svelte/transition';
 
 	/**
 	 * zone_name,country_code,abbreviation,time_start,gmt_offset,dst
@@ -40,24 +41,21 @@
             dropdownValue = timezoneSearchResults[0];
         }
     }
+    export let anchorTime = Date.now();
 
-    let userTimezoneOffset = new Date().getTimezoneOffset() * 60;
-    /** 
-     * An array of ticks for each hour across 3 days, centred on the current time
-     * @type {number[]}
-     */
-    export let hourTicks = Array.from({ length: 72 }, (_, i) => {
-        let now = Date.now() - userTimezoneOffset;
-        // Round this off to the nearest hour
-        now = now - now % (1000 * 60 * 60);
-        let hour = 1000 * 60 * 60;
-        let offset = (i - 36) * hour;
-        return now + offset;
-    });
+    export let timeRange = [anchorTime, anchorTime + 3 * 1000 * 60 * 60 * 36];
+
+    $: timezoneTimeRange = timeRange.map(t => t + timezoneOffset);
+
+    let userTimezoneOffset = new Date().getTimezoneOffset() * 60 * 1000;
 
     let x = d3.scaleTime()
-
-    $: x.domain(d3.extent(hourTicks));
+    $: {
+        let _domain = [anchorTime, timezoneTimeRange[1] + anchorTime - timezoneTimeRange[0]];
+        x.domain(_domain);
+        x = x;
+    }
+    
     
     let y = d3.scaleLinear()
         .domain([0,1])
@@ -75,9 +73,15 @@
         sunY = sunY;
     }
 
+    let animate = false;
     onMount(() => {
         window.addEventListener("resize", onresize);
         onresize();
+
+        // Only start animation after the first render
+        setTimeout(() => {
+            animate = true;
+        }, 0);
 
         return () => {
             window.removeEventListener("resize", onresize);
@@ -85,8 +89,9 @@
     });
 
 
-    $: now = Date.now();
-    $: timezoneOffset = getTimezoneOffset(now, dropdownValue);
+    let now = Date.now();
+    $: timezoneOffset = getTimezoneOffset(now, value);
+
 
 
 
@@ -105,19 +110,9 @@
     }
 
 
-    /**
-     * @param {Date|number} time
-     * @param {number} timezoneOffset
-     * @returns {number}
-     */
-    function addTimezoneOffset(time, timezoneOffset) {
-        let _time = time instanceof Date ? time.getTime() : time;
-        return _time;
-    }
-
     // Update now every second
     setInterval(() => {
-        // now = Date.now();
+        now = Date.now();
     }, 1000);
 
     $: formatTime = Intl.DateTimeFormat(undefined, {
@@ -133,6 +128,19 @@
         timeZone: value
     }).format;
 
+    /** 
+     * An array of ticks for each hour across 3 days, centred on the anchor time
+     * @type {number[]}
+     */
+     let hourTicks = [];
+    $: {
+        hourTicks = [];
+        const hour = 1000 * 60 * 60;
+        let start = Math.floor(timezoneTimeRange[0] / hour) * hour;
+        for(let h = start; h < timezoneTimeRange[1] + hour; h += hour) {
+            hourTicks.push(h);
+        }
+    }
 
     /**
      * Array of days where it's midnight in the selected timezone
@@ -141,10 +149,15 @@
      */
     let dayTicks = [];
     $: {
-        let start = x.domain()[0].getTime() + timezoneOffset;
-        let end = x.domain()[1].getTime() + timezoneOffset;
-        let day = 1000 * 60 * 60 * 24;
-        dayTicks = Array.from({ length: Math.ceil((end - start) / day) + 1 }, (_, i) => start - (start % day) + i * day - timezoneOffset);
+        dayTicks = [];
+
+        const day = 1000 * 60 * 60 * 24;
+        let start = timezoneTimeRange[0];
+        start = Math.floor((start - getTimezoneOffset(start, value)) / day) * day;
+        
+        for(let d = start; d < timezoneTimeRange[1] + day; d += day) {
+            dayTicks.push(d);
+        }
     }
 
 
@@ -175,9 +188,14 @@
         }
     }
 
+
+    /**
+     * @typedef {[number, number|null]} SunElevation
+     */
+
     /**
      * Array of sun elevation angles based on hourTicks
-     * @type {[number,number|null][]}
+     * @type {SunElevation[]}
      */
     let sunElevation = [];
     
@@ -185,8 +203,9 @@
         sunElevation = [];
         if(location) {
             // Get the sunrise and sunset times between the first and last hour ticks
-            for(let day of dayTicks) {
-                let sunTimes = SunCalc.getTimes(new Date(day), location[0], location[1]);
+            const day = 1000 * 60 * 60 * 24;
+            for(let d = timezoneTimeRange[0]; d < timezoneTimeRange[1] + day; d += day) {
+                let sunTimes = SunCalc.getTimes(d, location[0], location[1]);
                 // @ts-ignore sunrise exists
                 let sunrise = sunTimes.sunrise.getTime();
                 // @ts-ignore sunset exists
@@ -197,7 +216,7 @@
                 // Get the sun elevation for each half hour block
                 const blockInMins = 15;
                 for(let t = sunrise; t < sunset; t += 1000 * 60 * blockInMins) {
-                    let sunPos = SunCalc.getPosition(new Date(t), location[0], location[1]);
+                    let sunPos = SunCalc.getPosition(t, location[0], location[1]);
                     sunElevation.push([t, sunPos.altitude]);
 
                     if(t <= noon && noon <= t + 1000 * 60 * blockInMins) {
@@ -206,7 +225,7 @@
                     }
                 }
                 let t= sunset;
-                let sunPos = SunCalc.getPosition(new Date(t), location[0], location[1]);
+                let sunPos = SunCalc.getPosition(t, location[0], location[1]);
                 sunElevation.push([t, sunPos.altitude]);
 
                 sunElevation.push([sunset+1, null]);
@@ -215,17 +234,27 @@
     }
 
     let sunY = d3.scaleLinear()
+    $: {
+        sunY.domain([d3.min(sunElevation, (/** @type {SunElevation} */ d) => d[1]), Math.PI/2]);
+        sunY.range([y(1), y(0)]);
+        sunY = sunY;
+    }
 
-    $: sunY.domain([d3.min(sunElevation, d => d[1]), Math.PI/2]);
+    let sunArea = d3.area()
+    $:{
+        sunArea
+            .x((/** @type {SunElevation} */ d) => x(d[0] + timezoneOffset))
+            .y0(svg?.clientHeight || 10)
+            .y1((/** @type {SunElevation} */ d) => sunY(d[1]))
+            .defined((/** @type {SunElevation} */ d) => d[1] !== null);
+        sunArea = sunArea;
+    }
 
-    $: sunY.range([y(1), y(0)]);
+    /** @type {(date:number)=>boolean} */
+    $: isMidnight = (date) => {
+        return dayTicks.includes(date);
+    }
 
-    $: sunLine = d3.line()
-        .x((d, i) => x(d[0]))
-        .y(d => sunY(d[1]))
-        .defined(d => d[1] !== null);
-
-    
 </script>
 
 <div class="timezone">
@@ -237,22 +266,33 @@
             {/each}
         </select>
     </div>
-    <svg bind:this={svg} height="3em">
-        <g class="sun">
-            <path d={sunLine(sunElevation)} />
-        </g>
-        <g class="ticks">
-            {#each hourTicks as tick}
-                <line x1={x(tick)} x2={x(tick)} y1={y(0)} y2={y(1)} />
-            {/each}
-            {#each dayTicks as tick}
-                <text x={x(tick)} y={y(1)} dy="1em" text-anchor="start">{formatDate(tick)}</text>
-            {/each}
-        </g>
-        <g class="now">
-            <line x1={x(now)} x2={x(now)} y1={y(0)} y2={y(1)} />
-            <text x={x(now)} y={y(0)} dy={-2} text-anchor="start">{formatTime(now)}</text>
-            <text x={x(now)} y={y(0)} dx="-0.3em" dy={-2} text-anchor="end">{formatDate(now)}</text>
+    <svg class={`${animate ? "animate" : ""}`} bind:this={svg} height="3em">
+        <defs>
+            <linearGradient id="sun-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="rgb(255, 204, 0)" stop-opacity="0.3" />
+                <stop offset="100%" stop-color="rgb(255, 204, 0)" stop-opacity="0.05" />
+            </linearGradient>
+        </defs>
+        <g class={`timeline`} style={`transform: translate(${x(anchorTime) - x(timeRange[0])}px)`}>
+            <g class="timezone" style={`transform: translate(${x(0) - x(timezoneOffset)}px)`}>
+                <g class="sun">
+                    <path class="area" d={sunArea(sunElevation)} />
+                    <path class="outline" d={sunArea.lineY1()(sunElevation)} />
+                </g>
+                <g class="ticks">
+                    {#each hourTicks as tick (tick)}
+                        <line class={`${isMidnight(tick) ? "midnight" : ""}`} x1={x(tick)} x2={x(tick)} y1={y(0)} y2={y(1)} />
+                    {/each}
+                    {#each dayTicks as tick (tick)}
+                        <text x={x(tick)} y={y(1)} dy="1em" text-anchor="start">{formatDate(tick)}</text>
+                    {/each}
+                </g>
+            </g>
+            <g class="now">
+                <line x1={x(now)} x2={x(now)} y1={y(0)} y2={y(1)} />
+                <text x={x(now)} y={y(0)} dy={-2} text-anchor="start">{formatTime(now)}</text>
+                <text x={x(now)} y={y(0)} dx="-0.3em" dy={-2} text-anchor="end">{formatDate(now)}</text>
+            </g>
         </g>
     </svg>
 </div>
@@ -261,10 +301,13 @@
     select {
         width: 100px;
     }
+    input[type="search"] {
+        width: 100px;
+    }
 
     div.timezone {
         display: flex;
-        flex-direction: row nowrap;
+        flex-flow: row wrap;
         align-items: center;
 
         margin-bottom: 0.3em;
@@ -272,11 +315,12 @@
         gap: 0.5em;
         
         & > div {
-            flex-basis: 0 0;
+            flex: 0 0 auto;
         }
 
         & > svg {
-            flex-grow: 1;
+            flex: 1 0 300px;
+
         }
     }
 
@@ -289,10 +333,25 @@
         }
     }
 
-    g.sun {
-        --color-sun: rgb(255, 196, 0);
+    svg.animate {
+        g.timeline, g.timezone {
+            transition: transform 0.3s ease-in-out;
+        }
+    }
 
-        path {
+    g.timeline {
+        cursor: cell;
+    }
+
+    g.sun {
+        --color-sun: rgb(255, 204, 0);
+
+        .area {
+            fill: url(#sun-gradient);
+            stroke: none;
+        }
+
+        .outline {
             stroke: var(--color-sun);
             stroke-width: 2px;
 
@@ -302,11 +361,15 @@
 
     g.ticks {
         line {
-            stroke: #ccc;
+            stroke: #9993;
+
+            &.midnight {
+                stroke: #9999;
+            }
         }
         
         text {
-            fill: #ccc;
+            fill: #9999;
         }
     }
 
@@ -315,10 +378,14 @@
 
         line {
             stroke: var(--color-now);
+
+            transition: all 0.3s;
         }
 
         text {
             fill: var(--color-now);
+
+            transition: x 0.3s;
         }
     }
 </style>

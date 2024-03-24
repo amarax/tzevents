@@ -125,18 +125,42 @@
 	});
 
 
+
 	const defaultTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 	let selectedTimezones = [defaultTimezone];
 
-	$: console.log(selectedTimezones);
+	let anchorTime = Date.now();
+
+	let timeRange = [anchorTime, anchorTime + 3 * 24 * 60 * 60 * 1000];
+
+	/**
+	 * Offset the time range by a given offset in milliseconds.
+	 * @param {number} offset
+	 */
+	function offsetTimeRange(offset) {
+		timeRange = timeRange.map(t=>t + offset);
+	}
+
+	const day = 24 * 60 * 60 * 1000;
 </script>
-<h1>Timezone Events</h1>
+
+<svelte:head>
+    <title>Cross-Timezone Events</title> 
+</svelte:head>
+
 A simple way to coordinate cross-timezone events.
 
 <p>
+	<button on:click={() => offsetTimeRange(-7 * day)}>&lt;&lt;</button>
+	<button on:click={() => offsetTimeRange(-day)}>&lt;</button>
+	{new Date(timeRange[0]).toLocaleString()}
+	<button on:click={() => offsetTimeRange(day)}>&gt;</button>
+	<button on:click={() => offsetTimeRange(7 * day)}>&gt;&gt;</button>
+</p>
+<p>
 	{#each selectedTimezones as timezone}
-		<Timezone {timezoneNames} {timezones} {cities} bind:value={timezone} />
+		<Timezone {timezoneNames} {timezones} {cities} {anchorTime} {timeRange} bind:value={timezone} />
 	{/each}
 	<button on:click={() => selectedTimezones = [...selectedTimezones, defaultTimezone]}>Add Timezone</button>
 </p>
