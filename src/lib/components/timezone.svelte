@@ -44,6 +44,7 @@
     }
     export let anchorTime = Date.now();
 
+    /** @type {import('svelte/store').Writable<number[]>} */
     export let timeRange = writable([anchorTime, anchorTime + 3 * 1000 * 60 * 60 * 36]);
 
     $: timezoneTimeRange = $timeRange.map(t => t + timezoneOffset);
@@ -402,40 +403,40 @@
      * @param {MouseEvent} event
      */
     function onHover(event) {
-        // @ts-ignore
-        let eventX = event.clientX - event.target?.getBoundingClientRect().left;
-        let time = x.invert(eventX + x($timeRange[0]) - x(anchorTime));
-
-        if(time instanceof Date) {
-            time = time.getTime();
-        }
+        let time = timeFromClientX(event.clientX);
 
         // Snap to nearest 15 min block
         time = Math.round(time / minSelectionBlock) * minSelectionBlock;
 
         $hover = time;
 
-        onUpdateSelection();
+        onUpdateSelection($hover);
     }
 
 
     /** @type {number|undefined} */
     let selectionStart;
 
-    function onStartSelection() {
-        if(!$hover) return;
-        selectionStart = $hover;
+    /** 
+     * @param {number|null} time
+     */
+    function onStartSelection(time) {
+        if(!time) return;
+        selectionStart = time;
         $selection = [selectionStart, selectionStart + minSelectionBlock];
     }
 
-    function onUpdateSelection() {
-        if(selectionStart && $hover) {
-            if($hover == selectionStart) {
-                $selection = [$hover, selectionStart + minSelectionBlock];
-            } else if($hover < selectionStart) {
-                $selection = [$hover, selectionStart];
+    /** 
+     * @param {number|null} time
+     */
+    function onUpdateSelection(time) {
+        if(selectionStart && time) {
+            if(time == selectionStart) {
+                $selection = [time, selectionStart + minSelectionBlock];
+            } else if(time < selectionStart) {
+                $selection = [time, selectionStart];
             } else {
-                $selection = [selectionStart, $hover];
+                $selection = [selectionStart, time];
             }
         }
     }
@@ -502,6 +503,134 @@
 
     /** @type {HTMLInputElement} */
     let searchInput;
+
+
+    /**
+     * @param {number} clientX
+     */
+    function timeFromClientX(clientX) {
+        // @ts-ignore
+        let eventX = clientX - svg.getBoundingClientRect().left;
+        let time = x.invert(eventX + x($timeRange[0]) - x(anchorTime));
+
+        if(time instanceof Date) {
+            time = time.getTime();
+        }
+
+        return time;
+    }
+
+    /** @type {number|undefined} */
+    let touchSelectionHoldTimeout;
+
+    /** @type {{timeRange:number[], clientX:number, zoomFactor:number} | undefined} */
+    let touchStart;
+
+    /**
+     * @param {TouchEvent} event
+     */
+    function touchstart(event) {
+        event.preventDefault();
+
+        let touch = event.touches[0];
+        let time = timeFromClientX(touch.clientX);
+        time = Math.round(time / minSelectionBlock) * minSelectionBlock;
+
+        touchStart = {
+            timeRange: $timeRange, 
+            clientX: touch.clientX, 
+            zoomFactor: ($timeRange[1] - $timeRange[0]) / (x.range()[1] - x.range()[0])
+        };
+
+        clearTimeout(touchSelectionHoldTimeout);
+        touchSelectionHoldTimeout = setTimeout(() => {
+            onStartSelection(time);
+        }, 500);
+    }
+
+    /** @type {number|undefined} */
+    let secondTouchStart;
+
+    let zoomX = d3.scaleLinear();
+
+    /**
+     * @param {TouchEvent} event
+    */
+    function touchmove(event) {
+        event.preventDefault();
+
+        clearTimeout(touchSelectionHoldTimeout);
+
+        if(selectionStart) {
+            let touch = event.touches[0];
+            let time = timeFromClientX(touch.clientX);
+            time = Math.round(time / minSelectionBlock) * minSelectionBlock;
+
+            onUpdateSelection(time);
+        } else if(touchStart) {
+            $animate = false;
+
+            // Drag the timeline
+            let touch = event.touches[0];
+            let offset = timeFromClientX(touch.clientX) - timeFromClientX(touchStart.clientX);
+            $timeRange = touchStart.timeRange.map(t => t - offset);
+            
+            if(event.touches.length > 1) {
+                if(!secondTouchStart) {
+                    secondTouchStart = event.touches[1].clientX;
+                    zoomX.range([touch.clientX, secondTouchStart].map(x => x - svg.getBoundingClientRect().left));
+                    zoomX.domain([timeFromClientX(touch.clientX), timeFromClientX(secondTouchStart)]);
+                } else {
+                    zoomX.range([touch.clientX, event.touches[1].clientX].map(x => x - svg.getBoundingClientRect().left));
+
+                    let newTimeRange = x.range().map(r => zoomX.invert(r));
+                    console.log(newTimeRange.map(t => formatDateTime(t)));
+                    
+                    // Clamp the zoomFactor such that the time range is at least 1 day and at most 14 days
+                    let minTimeRange = 1000 * 60 * 60 * 24;
+                    let maxTimeRange = 1000 * 60 * 60 * 24 * 14;
+                    let rangeDuration = Math.abs(newTimeRange[1] - newTimeRange[0]);
+                    if(rangeDuration < minTimeRange) {
+                        // Rescale the time range centred on touch
+                        let time = zoomX.invert((touch.clientX + event.touches[1].clientX) / 2);
+                        let zoomFactor = minTimeRange / rangeDuration;
+                        newTimeRange = newTimeRange.map(t => time + (t - time) * zoomFactor);
+                        
+                    } else if(rangeDuration > maxTimeRange) {
+                    }
+
+                    // A scale of 0 to 1 where 0 is the min time range and 1 is the max time range
+                    let rangeDurationScale = (rangeDuration - minTimeRange) / (maxTimeRange - minTimeRange);
+
+                    console.log(rangeDurationScale);
+
+                    $timeRange = newTimeRange;
+                }
+
+            } else {
+                if(secondTouchStart) {
+                    touchStart.timeRange = $timeRange;
+                }
+                secondTouchStart = undefined;
+            }
+        }
+    }
+
+    /**
+     * @param {TouchEvent} event
+     */
+    function touchend(event) {
+        event.preventDefault();
+
+        clearTimeout(touchSelectionHoldTimeout);
+
+        if(selectionStart) {
+            onEndSelection();
+        } else {
+            $animate = true;
+        }
+    
+    }
 </script>
 
 <div class="timezone">
@@ -521,14 +650,6 @@
             </linearGradient>
         </defs>
         <g class={`timeline`} style={`transform: translate(${x(anchorTime) - x($timeRange[0])}px)`}>
-            {#if $selection}
-            <g class="selection">
-                <rect x={x($selection[0])} y={y(0)} width={x($selection[1]) - x($selection[0])} height={y(1) - y(0)} />
-                <text x={x($selection[0])} y={y(0)} dy={-2} text-anchor="end">{formatDateTime($selection[0])}</text>
-                <text x={x($selection[1])} y={y(0)} dy={-2} text-anchor="start">{formatDateTime($selection[1])}</text>
-            </g>
-            {/if}
-
             <g class="localTime" style={`transform: translate(${x(0) - x(timezoneOffset)}px)`}>
                 <g class="sun">
                     <path class="area" d={sunArea(sunElevation)} />
@@ -554,6 +675,15 @@
                 <text x={0} y={y(0)} dx="-0.3em" dy={-2} text-anchor="end">{formatDate(now)}</text>
             </g>
 
+            {#if $selection}
+            <g class="selection">
+                <rect x={x($selection[0])} y={y(0)} width={x($selection[1]) - x($selection[0])} height={y(1) - y(0)} />
+                <text x={x($selection[0])} y={y(0)} dy={-2} text-anchor="end">{formatDateTime($selection[0])}</text>
+                <text x={x($selection[1])} y={y(0)} dy={-2} text-anchor="start">{formatDateTime($selection[1])}</text>
+            </g>
+            {/if}
+
+
             {#if $hover}
                 <g class="hover">
                     <rect class="backing" x={x($hover)} y={y(0)-15} width="100" height={15} />
@@ -567,9 +697,13 @@
         <rect class="hitarea" x={x.range()[0]} y={y.range()[0]} width={Math.abs(x.range()[1] - x.range()[0])} height={Math.abs(y.range()[1] - y.range()[0])} fill="transparent" stroke="none" 
             on:mousemove={onHover}
             on:mouseleave={() => {$hover = null; onEndSelection()}}
-            on:mousedown={onStartSelection}
+            on:mousedown={()=>onStartSelection($hover)}
             on:mouseup={onEndSelection}
             on:wheel={onScroll}
+            on:touchstart={touchstart}
+            on:touchmove={touchmove}
+            on:touchend={touchend}
+            on:touchcancel={touchend}
             role="application"
             tabindex="-1"
         />
